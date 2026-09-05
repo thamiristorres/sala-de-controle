@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+<title>Sala de Controle</title>
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-status-bar-style" content="default" />
+<meta name="apple-mobile-web-app-title" content="Sala de Controle" />
+<meta name="mobile-web-app-capable" content="yes" />
+<meta name="theme-color" content="#6E2C24" />
+<link rel="manifest" href="manifest.json" />
+<link rel="apple-touch-icon" href="assets/apple-touch-icon.png" />
+<link rel="icon" href="assets/icon-192.png" />
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@latest/dist/tabler-icons.min.css" />
+<link rel="stylesheet" href="style.css" />
+</head>
+<body>
+
+<!-- LOGIN -->
+<div id="login-screen">
+  <form class="login-card" id="login-form">
+    <h1>Sala de Controle</h1>
+    <p>Thami &amp; Del</p>
+    <input type="email" id="login-email" placeholder="E-mail" required autocomplete="username" />
+    <input type="password" id="login-senha" placeholder="Senha" required autocomplete="current-password" />
+    <button type="submit">Entrar</button>
+    <div class="login-error" id="login-error"></div>
+  </form>
+</div>
+
+<!-- APP -->
+<div id="app" class="hidden">
+  <aside class="sidemenu">
+    <button class="icon-btn" id="menu-toggle" title="Menu"><i class="ti ti-menu-2"></i></button>
+    <button class="icon-btn" data-tab="cadastro" title="Cadastro"><i class="ti ti-users"></i></button>
+    <button class="icon-btn" data-tab="contas" title="Contas"><i class="ti ti-receipt"></i></button>
+    <button class="icon-btn" data-tab="compras" title="Compras"><i class="ti ti-shopping-cart"></i></button>
+    <button class="icon-btn" data-tab="agenda" title="Agenda"><i class="ti ti-calendar"></i></button>
+    <button class="icon-btn" data-tab="extras" title="Nem só boletos"><i class="ti ti-confetti"></i></button>
+  </aside>
+
+  <main class="content">
+    <header class="top-header">
+      <svg viewBox="0 0 324 70" preserveAspectRatio="none" aria-hidden="true">
+        <rect width="324" height="70" fill="#8B6B4A"/>
+        <rect x="20" y="8" width="30" height="20" rx="3" fill="#3E2723" opacity="0.5"/>
+        <rect x="55" y="12" width="16" height="13" rx="3" fill="#3E2723" opacity="0.4"/>
+        <circle cx="105" cy="16" r="7" fill="#F2EAD8" opacity="0.7"/>
+        <circle cx="120" cy="13" r="4" fill="#6E2C24" opacity="0.8"/>
+        <circle cx="132" cy="20" r="5" fill="#D8C3A5" opacity="0.9"/>
+        <rect x="148" y="12" width="3" height="16" fill="#3E2723" opacity="0.5"/>
+        <circle cx="149" cy="28" r="4" fill="#6E2C24" opacity="0.8"/>
+        <circle cx="250" cy="12" r="5" fill="#F2EAD8" opacity="0.6"/>
+        <circle cx="262" cy="18" r="3" fill="#6E2C24" opacity="0.7"/>
+        <rect x="275" y="8" width="24" height="14" rx="3" fill="#3E2723" opacity="0.4"/>
+        <polygon points="170,10 178,24 162,24" fill="#F0997B" opacity="0.85"/>
+        <rect x="220" y="12" width="15" height="7" rx="3.5" fill="#3E2723" opacity="0.5"/>
+        <polygon points="295,42 302,49 295,56 288,49" fill="#6E2C24" opacity="0.6"/>
+      </svg>
+      <h1>Sala de Controle</h1>
+      <p class="subtitulo" id="header-subtitulo">Contas da casa</p>
+    </header>
+
+    <div class="postits" id="postits">
+      <div class="postit" data-autor="thami"><span class="autor">Thami</span><span class="texto">...</span></div>
+      <div class="postit" data-autor="del"><span class="autor">Del</span><span class="texto">...</span></div>
+    </div>
+
+    <div id="tab-content"></div>
+
+    <div class="logout-link" id="logout-btn">Sair da conta</div>
+  </main>
+
+  <button class="add-btn hidden" id="add-btn">+</button>
+</div>
+
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
