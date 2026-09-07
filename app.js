@@ -284,6 +284,9 @@ function renderContas() {
         openContaModal(conta);
       });
     });
+  }, (err) => {
+    $('#contas-list').innerHTML = `<div class="empty-state">Não consegui carregar as contas agora. Tente novamente em instantes.</div>`;
+    console.error(err);
   });
   unsubscribers.push(unsub);
 }
@@ -394,6 +397,9 @@ function renderCompras() {
   const unsub = db.collection('compras').orderBy('setor').onSnapshot((snap) => {
     lastItens = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
     renderComprasList(lastItens);
+  }, (err) => {
+    $('#compras-list').innerHTML = `<div class="empty-state">Não consegui carregar a lista agora. Tente novamente em instantes.</div>`;
+    console.error(err);
   });
   unsubscribers.push(unsub);
 
@@ -413,7 +419,7 @@ function renderCompras() {
           <div class="item-card">
             <div>
               <div class="titulo">${i.nome}</div>
-              <div class="meta">${i.setor} · ideal: ${i.idealQtd}</div>
+              <div class="meta">${i.setor} · ideal: ${i.idealQtd} ${i.unidade || ''}</div>
             </div>
             <input type="number" min="0" data-id="${i.id}" class="contagem-input" value="${i.atualQtd}" style="width:64px;padding:6px;border-radius:8px;border:1px solid var(--marrom-claro)" />
           </div>`).join('');
@@ -443,7 +449,7 @@ function renderCompras() {
               <input type="checkbox" class="comprado-check" data-id="${i.id}" data-ideal="${i.idealQtd}" />
               <div>
                 <div class="titulo">${i.nome}</div>
-                <div class="meta">comprar ${Number(i.idealQtd) - Number(i.atualQtd)} (tem ${i.atualQtd}, ideal ${i.idealQtd})</div>
+                <div class="meta">comprar ${Number(i.idealQtd) - Number(i.atualQtd)} ${i.unidade || ''} (tem ${i.atualQtd}, ideal ${i.idealQtd})</div>
               </div>
             </label>
           </div>`).join('')}
@@ -466,6 +472,7 @@ function openItemModal() {
     <div class="form-field"><label>Onde compram (ex: supermercado)</label><input id="f-local" /></div>
     <div class="form-field"><label>Quantidade ideal</label><input id="f-ideal" type="number" min="0" /></div>
     <div class="form-field"><label>Quantidade atual</label><input id="f-atual" type="number" min="0" value="0" /></div>
+    <div class="form-field"><label>Unidade (ex: kg, un, pacotes, L)</label><input id="f-unidade" placeholder="un" /></div>
     <div class="modal-actions">
       <button class="btn-secondary" id="btn-cancelar">Cancelar</button>
       <button class="btn-primary" id="btn-salvar">Adicionar</button>
@@ -481,7 +488,8 @@ function openItemModal() {
         setor: $('#f-setor', overlay).value.trim() || 'geral',
         local: $('#f-local', overlay).value.trim() || 'a definir',
         idealQtd: Number($('#f-ideal', overlay).value) || 0,
-        atualQtd: Number($('#f-atual', overlay).value) || 0
+        atualQtd: Number($('#f-atual', overlay).value) || 0,
+        unidade: $('#f-unidade', overlay).value.trim() || 'un'
       }).then(closeModal);
     });
   });
@@ -502,8 +510,9 @@ function renderAgenda() {
     <div class="list-area" id="agenda-list"><div class="loading-state">Carregando...</div></div>
   `;
 
-  const unsub = db.collection('agenda').orderBy('data').orderBy('hora').onSnapshot((snap) => {
-    const eventos = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+  const unsub = db.collection('agenda').onSnapshot((snap) => {
+    const eventos = snap.docs.map((d) => ({ id: d.id, ...d.data() }))
+      .sort((a, b) => (a.data + a.hora).localeCompare(b.data + b.hora));
     const futuros = eventos.filter((e) => e.data >= new Date().toISOString().slice(0, 10));
     $('#res-proximo').textContent = futuros[0] ? `${futuros[0].titulo} · ${formatDateBR(futuros[0].data)}` : 'Nada marcado';
 
@@ -527,11 +536,10 @@ function renderAgenda() {
         openCompromissoModal(ev);
       });
     });
+  }, (err) => {
+    $('#agenda-list').innerHTML = `<div class="empty-state">Não consegui carregar a agenda agora. Tente novamente em instantes.</div>`;
+    console.error(err);
   });
-  unsubscribers.push(unsub);
-}
-
-function openCompromissoModal(ev) {
   const isEdit = ev && ev.id;
   const html = `
     <h2>${isEdit ? 'Editar compromisso' : 'Novo compromisso'}</h2>
@@ -614,11 +622,10 @@ function renderExtras() {
         openExtraModal(item);
       });
     });
+  }, (err) => {
+    $('#extras-list').innerHTML = `<div class="empty-state">Não consegui carregar agora. Tente novamente em instantes.</div>`;
+    console.error(err);
   });
-  unsubscribers.push(unsub);
-}
-
-function openExtraModal(item) {
   const isEdit = item && item.id;
   const html = `
     <h2>${isEdit ? 'Editar item' : 'Novo item'}</h2>
@@ -652,9 +659,15 @@ function openExtraModal(item) {
   });
 }
 
-// ===================== SERVICE WORKER =====================
+// ===================== SERVICE WORKER (removido) =====================
+// O app não usa mais service worker (funcionamento offline), pra evitar
+// versões antigas presas no cache do navegador. Este trecho desativa
+// qualquer service worker que ainda esteja instalado de uma versão anterior.
 if ('serviceWorker' in navigator) {
-  window.addEventListener('load', () => {
-    navigator.serviceWorker.register('sw.js').catch(() => {});
+  navigator.serviceWorker.getRegistrations().then((registrations) => {
+    registrations.forEach((reg) => reg.unregister());
   });
+  if ('caches' in window) {
+    caches.keys().then((keys) => keys.forEach((k) => caches.delete(k)));
+  }
 }
