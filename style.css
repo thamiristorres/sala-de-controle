@@ -336,6 +336,23 @@ input, textarea, select {
 .agenda-item.ambas { border-left-color: var(--ambas); }
 .agenda-item .titulo { display: flex; align-items: center; gap: 6px; }
 
+.hist-toggle {
+  margin: 4px 14px 0;
+  padding: 10px 4px;
+  font-size: 11px;
+  color: var(--marrom);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.hist-toggle i { transition: transform 0.15s; }
+.hist-toggle.aberto i { transform: rotate(90deg); }
+.hist-area { padding-top: 4px; }
+.hist-area .item-card { opacity: 0.75; }
+
 /* ---------- MODAL ---------- */
 .modal-overlay {
   position: fixed;

@@ -508,20 +508,27 @@ function renderAgenda() {
       <div class="resumo-card" style="flex:2"><div class="label">Próximo compromisso</div><div class="valor" id="res-proximo" style="font-size:14px">-</div></div>
     </div>
     <div class="list-area" id="agenda-list"><div class="loading-state">Carregando...</div></div>
+    <div class="hist-toggle" id="agenda-hist-toggle" hidden>
+      <i class="ti ti-chevron-right"></i> Histórico (<span id="agenda-hist-count">0</span>)
+    </div>
+    <div class="list-area hist-area" id="agenda-historico" hidden></div>
   `;
 
+  $('#agenda-hist-toggle').addEventListener('click', () => {
+    const hist = $('#agenda-historico');
+    hist.hidden = !hist.hidden;
+    $('#agenda-hist-toggle').classList.toggle('aberto', !hist.hidden);
+  });
+
   const unsub = db.collection('agenda').onSnapshot((snap) => {
+    const hoje = new Date().toISOString().slice(0, 10);
     const eventos = snap.docs.map((d) => ({ id: d.id, ...d.data() }))
       .sort((a, b) => (a.data + a.hora).localeCompare(b.data + b.hora));
-    const futuros = eventos.filter((e) => e.data >= new Date().toISOString().slice(0, 10));
+    const futuros = eventos.filter((e) => e.data >= hoje);
+    const passados = eventos.filter((e) => e.data < hoje).reverse();
     $('#res-proximo').textContent = futuros[0] ? `${futuros[0].titulo} · ${formatDateBR(futuros[0].data)}` : 'Nada marcado';
 
-    const list = $('#agenda-list');
-    if (eventos.length === 0) {
-      list.innerHTML = '<div class="empty-state">Nenhum compromisso ainda.</div>';
-      return;
-    }
-    list.innerHTML = eventos.map((ev) => {
+    const cardHtml = (ev) => {
       const conflitos = eventos.filter((e2) => e2.id !== ev.id && e2.data === ev.data && e2.hora === ev.hora);
       return `<div class="item-card agenda-item ${ev.responsavel}" data-id="${ev.id}">
         <div>
@@ -529,17 +536,42 @@ function renderAgenda() {
           <div class="meta">${formatDateBR(ev.data)} · ${ev.hora || ''} · ${ev.responsavel === 'ambas' ? 'Das duas' : ev.responsavel === 'del' ? 'Del' : 'Thami'}</div>
         </div>
       </div>`;
-    }).join('');
-    list.querySelectorAll('.item-card').forEach((cardEl) => {
-      cardEl.addEventListener('click', () => {
-        const ev = eventos.find((e) => e.id === cardEl.dataset.id);
-        openCompromissoModal(ev);
+    };
+
+    const list = $('#agenda-list');
+    list.innerHTML = futuros.length
+      ? futuros.map(cardHtml).join('')
+      : `<div class="empty-state">${eventos.length ? 'Nenhum compromisso futuro.' : 'Nenhum compromisso ainda.'}</div>`;
+
+    const hist = $('#agenda-historico');
+    const toggle = $('#agenda-hist-toggle');
+    if (passados.length) {
+      hist.innerHTML = passados.map(cardHtml).join('');
+      $('#agenda-hist-count').textContent = passados.length;
+      toggle.hidden = false;
+    } else {
+      hist.innerHTML = '';
+      hist.hidden = true;
+      toggle.hidden = true;
+      toggle.classList.remove('aberto');
+    }
+
+    [list, hist].forEach((container) => {
+      container.querySelectorAll('.item-card').forEach((cardEl) => {
+        cardEl.addEventListener('click', () => {
+          const ev = eventos.find((e) => e.id === cardEl.dataset.id);
+          openCompromissoModal(ev);
+        });
       });
     });
   }, (err) => {
     $('#agenda-list').innerHTML = `<div class="empty-state">Não consegui carregar a agenda agora. Tente novamente em instantes.</div>`;
     console.error(err);
   });
+  unsubscribers.push(unsub);
+}
+
+function openCompromissoModal(ev) {
   const isEdit = ev && ev.id;
   const html = `
     <h2>${isEdit ? 'Editar compromisso' : 'Novo compromisso'}</h2>
@@ -626,6 +658,10 @@ function renderExtras() {
     $('#extras-list').innerHTML = `<div class="empty-state">Não consegui carregar agora. Tente novamente em instantes.</div>`;
     console.error(err);
   });
+  unsubscribers.push(unsub);
+}
+
+function openExtraModal(item) {
   const isEdit = item && item.id;
   const html = `
     <h2>${isEdit ? 'Editar item' : 'Novo item'}</h2>
