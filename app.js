@@ -148,16 +148,23 @@ function goToTab(tab) {
 }
 
 // ===================== POST-ITS =====================
+// Os post-its ficam visíveis em todas as abas, então o "escutador" do
+// Firestore deles não pode ser desligado quando a pessoa troca de aba
+// (clearListeners() roda a cada troca de aba). Por isso ele NÃO entra na
+// lista global "unsubscribers" — fica ouvindo o tempo todo, e o recado
+// salvo só muda quando alguém escreve um novo.
+let postitsInicializados = false;
 function setupPostits() {
+  if (postitsInicializados) return;
+  postitsInicializados = true;
   ['thami', 'del'].forEach((autor) => {
     const el = document.querySelector(`.postit[data-autor="${autor}"]`);
-    const unsub = db.collection('recados').doc(autor).onSnapshot((doc) => {
+    db.collection('recados').doc(autor).onSnapshot((doc) => {
       const texto = doc.exists ? doc.data().texto : 'Escreva um recado...';
       if (!el.classList.contains('editing')) {
         el.querySelector('.texto').textContent = texto || 'Escreva um recado...';
       }
     });
-    unsubscribers.push(unsub);
 
     el.addEventListener('click', () => {
       if (el.classList.contains('editing')) return;
@@ -191,7 +198,6 @@ function renderCadastro() {
     ['contatoEmergencia', 'Contato de emergência'],
     ['alergia', 'Alergia relevante'],
     ['tipoSanguineo', 'Tipo sanguíneo'],
-    ['dadosBancarios', 'Dados bancários'],
     ['chavePix', 'Chave pix']
   ];
 
@@ -534,6 +540,7 @@ function renderAgenda() {
         <div>
           <div class="titulo">${ev.titulo} ${conflitos.length ? '<span class="badge alerta">conflito de horário</span>' : ''}</div>
           <div class="meta">${formatDateBR(ev.data)} · ${ev.hora || ''} · ${ev.responsavel === 'ambas' ? 'Das duas' : ev.responsavel === 'del' ? 'Del' : 'Thami'}</div>
+          ${ev.obsPassado ? `<div class="meta agenda-obs">Obs: ${ev.obsPassado}</div>` : ''}
         </div>
       </div>`;
     };
@@ -556,12 +563,20 @@ function renderAgenda() {
       toggle.classList.remove('aberto');
     }
 
-    [list, hist].forEach((container) => {
-      container.querySelectorAll('.item-card').forEach((cardEl) => {
-        cardEl.addEventListener('click', () => {
-          const ev = eventos.find((e) => e.id === cardEl.dataset.id);
-          openCompromissoModal(ev);
-        });
+    // Só os compromissos futuros abrem o modal de editar/excluir.
+    list.querySelectorAll('.item-card').forEach((cardEl) => {
+      cardEl.addEventListener('click', () => {
+        const ev = eventos.find((e) => e.id === cardEl.dataset.id);
+        openCompromissoModal(ev);
+      });
+    });
+    // Os que já foram para o Histórico não podem ser editados nem excluídos —
+    // só abrem uma tela pra ler os dados e, se quiser, anotar uma observação
+    // (por exemplo, se algo saiu diferente do que estava registrado).
+    hist.querySelectorAll('.item-card').forEach((cardEl) => {
+      cardEl.addEventListener('click', () => {
+        const ev = eventos.find((e) => e.id === cardEl.dataset.id);
+        openObservacaoModal(ev);
       });
     });
   }, (err) => {
@@ -615,6 +630,39 @@ function openCompromissoModal(ev) {
       };
       const ref = isEdit ? db.collection('agenda').doc(ev.id) : db.collection('agenda').doc();
       ref.set(payload, { merge: true }).then(closeModal);
+    });
+  });
+}
+
+// Tela de um compromisso que já passou (Histórico). Só mostra os dados —
+// não dá pra editar nem excluir — mas permite escrever/atualizar uma
+// observação, para o caso de algo ter saído diferente do que foi registrado.
+function openObservacaoModal(ev) {
+  const html = `
+    <h2>Compromisso já passou</h2>
+    <div class="form-field">
+      <label>Título</label>
+      <div>${ev.titulo}</div>
+    </div>
+    <div class="form-field">
+      <label>Quando</label>
+      <div>${formatDateBR(ev.data)} · ${ev.hora || ''} · ${ev.responsavel === 'ambas' ? 'Das duas' : ev.responsavel === 'del' ? 'Del' : 'Thami'}</div>
+    </div>
+    ${ev.descricao ? `<div class="form-field"><label>Descrição registrada</label><div>${ev.descricao}</div></div>` : ''}
+    <div class="form-field">
+      <label>Observação (se algo saiu diferente do que está registrado aqui)</label>
+      <textarea id="f-obs-passado" maxlength="300">${ev.obsPassado || ''}</textarea>
+    </div>
+    <div class="modal-actions">
+      <button class="btn-secondary" id="btn-cancelar">Fechar</button>
+      <button class="btn-primary" id="btn-salvar">Salvar observação</button>
+    </div>
+  `;
+  openModal(html, (overlay) => {
+    $('#btn-cancelar', overlay).addEventListener('click', closeModal);
+    $('#btn-salvar', overlay).addEventListener('click', () => {
+      const obsPassado = $('#f-obs-passado', overlay).value.trim();
+      db.collection('agenda').doc(ev.id).update({ obsPassado }).then(closeModal);
     });
   });
 }

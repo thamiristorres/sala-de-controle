@@ -352,6 +352,7 @@ input, textarea, select {
 .hist-toggle.aberto i { transform: rotate(90deg); }
 .hist-area { padding-top: 4px; }
 .hist-area .item-card { opacity: 0.75; }
+.agenda-obs { font-style: italic; }
 
 /* ---------- MODAL ---------- */
 .modal-overlay {
