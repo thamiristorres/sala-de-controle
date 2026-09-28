@@ -418,6 +418,17 @@ input, textarea, select {
   background: #eee;
 }
 
+.item-edit-btn {
+  background: none;
+  border: none;
+  flex-shrink: 0;
+  color: var(--marrom);
+  font-size: 18px;
+  padding: 4px 8px;
+}
+
+.contagem-info { flex: 1; cursor: pointer; }
+
 .compras-grupo { margin-bottom: 16px; }
 .compras-grupo h4 {
   font-size: 12px;

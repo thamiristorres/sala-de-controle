@@ -378,9 +378,12 @@ function openContaModal(conta) {
 
 // ===================== COMPRAS =====================
 let modoContagem = false;
+// Lista dos locais de compra já usados em algum item, pra virar as opções
+// do campo "Onde compram" (assim não precisa digitar o nome toda vez).
+let locaisConhecidos = [];
 function renderCompras() {
   $('#add-btn').classList.remove('hidden');
-  $('#add-btn').onclick = openItemModal;
+  $('#add-btn').onclick = () => openItemModal();
   const el = $('#tab-content');
   el.innerHTML = `
     <div class="section-label">Lista de compras</div>
@@ -402,6 +405,7 @@ function renderCompras() {
   let lastItens = [];
   const unsub = db.collection('compras').orderBy('setor').onSnapshot((snap) => {
     lastItens = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+    locaisConhecidos = [...new Set(lastItens.map((i) => i.local).filter(Boolean))].sort((a, b) => a.localeCompare(b));
     renderComprasList(lastItens);
   }, (err) => {
     $('#compras-list').innerHTML = `<div class="empty-state">Não consegui carregar a lista agora. Tente novamente em instantes.</div>`;
@@ -423,15 +427,21 @@ function renderCompras() {
       list.innerHTML = '<div class="section-label" style="padding-left:0">Preencha a quantidade que vocês têm agora</div>' +
         itens.map((i) => `
           <div class="item-card">
-            <div>
+            <div class="contagem-info" data-id="${i.id}">
               <div class="titulo">${i.nome}</div>
-              <div class="meta">${i.setor} · ideal: ${i.idealQtd} ${i.unidade || ''}</div>
+              <div class="meta">${i.setor}${i.local ? ' · ' + i.local : ''} · ideal: ${i.idealQtd} ${i.unidade || ''}</div>
             </div>
             <input type="number" min="0" data-id="${i.id}" class="contagem-input" value="${i.atualQtd}" style="width:64px;padding:6px;border-radius:8px;border:1px solid var(--marrom-claro)" />
           </div>`).join('');
       list.querySelectorAll('.contagem-input').forEach((inp) => {
         inp.addEventListener('change', () => {
           db.collection('compras').doc(inp.dataset.id).update({ atualQtd: Number(inp.value) || 0 });
+        });
+      });
+      // Toca no nome/detalhes do item (não no campo de número) pra editar o item inteiro.
+      list.querySelectorAll('.contagem-info').forEach((infoEl) => {
+        infoEl.addEventListener('click', () => {
+          openItemModal(itens.find((i) => i.id === infoEl.dataset.id));
         });
       });
       return;
@@ -458,6 +468,7 @@ function renderCompras() {
                 <div class="meta">comprar ${Number(i.idealQtd) - Number(i.atualQtd)} ${i.unidade || ''} (tem ${i.atualQtd}, ideal ${i.idealQtd})</div>
               </div>
             </label>
+            <button class="item-edit-btn" data-id="${i.id}" aria-label="Editar item"><i class="ti ti-pencil"></i></button>
           </div>`).join('')}
       </div>`).join('');
     list.querySelectorAll('.comprado-check').forEach((chk) => {
@@ -467,36 +478,70 @@ function renderCompras() {
         }
       });
     });
+    list.querySelectorAll('.item-edit-btn').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        openItemModal(itens.find((i) => i.id === btn.dataset.id));
+      });
+    });
   }
 }
 
-function openItemModal() {
+function openItemModal(item) {
+  const isEdit = item && item.id;
+  // O local do item atual entra na lista de opções mesmo que, por algum
+  // motivo, ainda não esteja em locaisConhecidos.
+  const opcoesLocal = [...new Set([...locaisConhecidos, ...(item?.local ? [item.local] : [])])];
+  const localHtml = opcoesLocal.map((l) =>
+    `<option value="${l}" ${item?.local === l ? 'selected' : ''}>${l}</option>`
+  ).join('');
+
   const html = `
-    <h2>Novo item</h2>
-    <div class="form-field"><label>Nome do item</label><input id="f-nome" /></div>
-    <div class="form-field"><label>Setor (ex: comida, limpeza)</label><input id="f-setor" /></div>
-    <div class="form-field"><label>Onde compram (ex: supermercado)</label><input id="f-local" /></div>
-    <div class="form-field"><label>Quantidade ideal</label><input id="f-ideal" type="number" min="0" /></div>
-    <div class="form-field"><label>Quantidade atual</label><input id="f-atual" type="number" min="0" value="0" /></div>
-    <div class="form-field"><label>Unidade (ex: kg, un, pacotes, L)</label><input id="f-unidade" placeholder="un" /></div>
+    <h2>${isEdit ? 'Editar item' : 'Novo item'}</h2>
+    <div class="form-field"><label>Nome do item</label><input id="f-nome" value="${item?.nome || ''}" /></div>
+    <div class="form-field"><label>Setor (ex: comida, limpeza)</label><input id="f-setor" value="${item?.setor || ''}" /></div>
+    <div class="form-field">
+      <label>Onde compram</label>
+      <select id="f-local-select">
+        <option value="">Selecionar...</option>
+        ${localHtml}
+        <option value="__novo__">+ Novo local</option>
+      </select>
+      <input id="f-local-novo" placeholder="Nome do novo local" class="hidden" style="margin-top:8px" />
+    </div>
+    <div class="form-field"><label>Quantidade ideal</label><input id="f-ideal" type="number" min="0" value="${item?.idealQtd ?? ''}" /></div>
+    <div class="form-field"><label>Quantidade atual</label><input id="f-atual" type="number" min="0" value="${item?.atualQtd ?? 0}" /></div>
+    <div class="form-field"><label>Unidade (ex: kg, un, pacotes, L)</label><input id="f-unidade" placeholder="un" value="${item?.unidade || ''}" /></div>
     <div class="modal-actions">
       <button class="btn-secondary" id="btn-cancelar">Cancelar</button>
-      <button class="btn-primary" id="btn-salvar">Adicionar</button>
+      <button class="btn-primary" id="btn-salvar">${isEdit ? 'Salvar' : 'Adicionar'}</button>
     </div>
+    ${isEdit ? '<button class="btn-danger" id="btn-excluir">Excluir item</button>' : ''}
   `;
   openModal(html, (overlay) => {
+    $('#f-local-select', overlay).addEventListener('change', (e) => {
+      $('#f-local-novo', overlay).classList.toggle('hidden', e.target.value !== '__novo__');
+    });
     $('#btn-cancelar', overlay).addEventListener('click', closeModal);
+    $('#btn-excluir', overlay)?.addEventListener('click', () => {
+      db.collection('compras').doc(item.id).delete().then(closeModal);
+    });
     $('#btn-salvar', overlay).addEventListener('click', () => {
       const nome = $('#f-nome', overlay).value.trim();
       if (!nome) return;
-      db.collection('compras').add({
+      const localEscolhido = $('#f-local-select', overlay).value;
+      const local = localEscolhido === '__novo__'
+        ? $('#f-local-novo', overlay).value.trim()
+        : localEscolhido;
+      const payload = {
         nome,
         setor: $('#f-setor', overlay).value.trim() || 'geral',
-        local: $('#f-local', overlay).value.trim() || 'a definir',
+        local: local || 'a definir',
         idealQtd: Number($('#f-ideal', overlay).value) || 0,
         atualQtd: Number($('#f-atual', overlay).value) || 0,
         unidade: $('#f-unidade', overlay).value.trim() || 'un'
-      }).then(closeModal);
+      };
+      const ref = isEdit ? db.collection('compras').doc(item.id) : db.collection('compras').doc();
+      ref.set(payload, { merge: true }).then(closeModal);
     });
   });
 }
