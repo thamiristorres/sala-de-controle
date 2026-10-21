@@ -456,6 +456,8 @@ function renderCompras() {
       const chave = `${i.setor} · ${i.local}`;
       (grupos[chave] = grupos[chave] || []).push(i);
     });
+    // Dentro de cada categoria, os itens ficam em ordem alfabética pelo nome.
+    Object.values(grupos).forEach((g) => g.sort((a, b) => (a.nome || '').localeCompare(b.nome || '', 'pt-BR')));
     list.innerHTML = Object.entries(grupos).map(([chave, itensGrupo]) => `
       <div class="compras-grupo">
         <h4>${chave}</h4>

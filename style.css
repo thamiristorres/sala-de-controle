@@ -429,6 +429,23 @@ input, textarea, select {
 
 .contagem-info { flex: 1; cursor: pointer; }
 
+/* ---------- LISTA DE COMPRAS (lista dos sonhos / o que comprar) ---------- */
+.item-card.compra-ok { background: var(--verde-bg); }
+.item-card.compra-falta { background: var(--coral-bg); }
+
+.sonhos-ok-btn {
+  background: var(--verde-txt);
+  color: #fff;
+  font-size: 12px;
+  font-weight: 600;
+  padding: 7px 10px;
+  border-radius: 8px;
+  flex-shrink: 0;
+}
+
+.item-card.comprado-ok { background: var(--verde-bg); }
+.item-card.comprado-ok .titulo { text-decoration: line-through; opacity: 0.7; }
+
 .compras-grupo { margin-bottom: 16px; }
 .compras-grupo h4 {
   font-size: 12px;
