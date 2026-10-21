@@ -377,10 +377,23 @@ function openContaModal(conta) {
 }
 
 // ===================== COMPRAS =====================
-let modoContagem = false;
-// Lista dos locais de compra já usados em algum item, pra virar as opções
-// do campo "Onde compram" (assim não precisa digitar o nome toda vez).
-let locaisConhecidos = [];
+// MODELO NOVO (a partir de out/2026):
+// - Coleção "compras": o cadastro de itens (a "lista dos sonhos"). Cada item
+//   tem nome, categoria ("onde comprar"), unidade, quantidade ideal e atual.
+// - Coleção "comprasSessao", doc único "atual": a lista "O que comprar?" de
+//   agora. Só guarda uma entrada por item que está (ou esteve) nessa lista:
+//   { comprado, qtdNecessaria, qtdAntesDaCompra }. Um item entra aqui quando
+//   fica com quantidade atual menor que a ideal, e só sai quando a lista é
+//   finalizada ou cadenciada — não desaparece sozinho.
+// - Coleção "comprasHistorico": um registro por lista finalizada/cadenciada,
+//   com a data e os itens daquela vez (comprados ou não).
+const CATEGORIAS_COMPRA_FIXAS = ['Empório', 'Farmácia', 'Supermercado', 'Sacolão', 'Açougue'];
+const UNIDADES_COMPRA_FIXAS = ['Litro', 'Quilo', 'Unidade', 'Pacote'];
+let categoriasConhecidas = [...CATEGORIAS_COMPRA_FIXAS];
+let unidadesConhecidas = [...UNIDADES_COMPRA_FIXAS];
+let compraSubaba = 'sonhos'; // 'sonhos' = Lista dos sonhos | 'comprar' = O que comprar?
+let comprasItensAtuais = []; // usado pro aviso de item duplicado
+
 function renderCompras() {
   $('#add-btn').classList.remove('hidden');
   $('#add-btn').onclick = () => openItemModal();
@@ -389,130 +402,334 @@ function renderCompras() {
     <div class="section-label">Lista de compras</div>
     <div class="resumo-row">
       <img src="assets/compras.jpg" class="resumo-thumb" alt="" />
-      <div class="resumo-card"><div class="label">Faltando</div><div class="valor" id="res-faltando">-</div></div>
-      <button class="resumo-card" id="btn-contagem" style="background:var(--vermelho-escuro);border:none">
-        <div class="label">Modo</div><div class="valor" style="font-size:14px">Contagem</div>
+      <div class="resumo-card"><div class="label">O que comprar</div><div class="valor" id="res-comprar-contagem">-</div></div>
+      <button class="resumo-card" id="btn-toggle-subaba" style="background:var(--vermelho-escuro);border:none">
+        <div class="label">Ver</div><div class="valor" id="subaba-label" style="font-size:13px">O que comprar?</div>
       </button>
     </div>
     <div class="list-area" id="compras-list"><div class="loading-state">Carregando...</div></div>
   `;
 
-  $('#btn-contagem').addEventListener('click', () => {
-    modoContagem = !modoContagem;
-    renderComprasList(lastItens || []);
+  $('#btn-toggle-subaba').addEventListener('click', () => {
+    compraSubaba = compraSubaba === 'sonhos' ? 'comprar' : 'sonhos';
+    atualizarLabelSubaba();
+    renderTudo();
   });
+  function atualizarLabelSubaba() {
+    $('#subaba-label').textContent = compraSubaba === 'sonhos' ? 'O que comprar?' : 'Lista dos sonhos';
+  }
+  atualizarLabelSubaba();
 
   let lastItens = [];
-  const unsub = db.collection('compras').orderBy('setor').onSnapshot((snap) => {
+  let lastSessaoItens = {};
+  let lastHistorico = [];
+
+  function renderTudo() {
+    $('#res-comprar-contagem').textContent = listaOQueComprar(lastItens, lastSessaoItens).length;
+    if (compraSubaba === 'sonhos') renderListaDosSonhos(lastItens);
+    else renderOQueComprar(lastItens, lastSessaoItens, lastHistorico);
+  }
+
+  const unsubItens = db.collection('compras').onSnapshot((snap) => {
     lastItens = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
-    locaisConhecidos = [...new Set(lastItens.map((i) => i.local).filter(Boolean))].sort((a, b) => a.localeCompare(b));
-    renderComprasList(lastItens);
+    comprasItensAtuais = lastItens;
+    categoriasConhecidas = [...new Set([...CATEGORIAS_COMPRA_FIXAS, ...lastItens.map((i) => i.categoria).filter(Boolean)])];
+    unidadesConhecidas = [...new Set([...UNIDADES_COMPRA_FIXAS, ...lastItens.map((i) => i.unidade).filter(Boolean)])];
+    renderTudo();
   }, (err) => {
     $('#compras-list').innerHTML = `<div class="empty-state">Não consegui carregar a lista agora. Tente novamente em instantes.</div>`;
     console.error(err);
   });
-  unsubscribers.push(unsub);
+  unsubscribers.push(unsubItens);
 
-  function renderComprasList(itens) {
-    const faltando = itens.filter((i) => Number(i.atualQtd) < Number(i.idealQtd));
-    $('#res-faltando').textContent = faltando.length;
-    const list = $('#compras-list');
+  const unsubSessao = db.collection('comprasSessao').doc('atual').onSnapshot((doc) => {
+    lastSessaoItens = doc.exists ? (doc.data().itens || {}) : {};
+    renderTudo();
+  });
+  unsubscribers.push(unsubSessao);
 
-    if (itens.length === 0) {
-      list.innerHTML = '<div class="empty-state">Nenhum item cadastrado ainda.</div>';
-      return;
-    }
+  const unsubHistorico = db.collection('comprasHistorico').orderBy('criadoEm', 'desc').limit(20).onSnapshot((snap) => {
+    lastHistorico = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+    renderTudo();
+  }, (err) => console.error(err));
+  unsubscribers.push(unsubHistorico);
+}
 
-    if (modoContagem) {
-      list.innerHTML = '<div class="section-label" style="padding-left:0">Preencha a quantidade que vocês têm agora</div>' +
-        itens.map((i) => `
-          <div class="item-card">
-            <div class="contagem-info" data-id="${i.id}">
-              <div class="titulo">${i.nome}</div>
-              <div class="meta">${i.setor}${i.local ? ' · ' + i.local : ''} · ideal: ${i.idealQtd} ${i.unidade || ''}</div>
-            </div>
-            <input type="number" min="0" data-id="${i.id}" class="contagem-input" value="${i.atualQtd}" style="width:64px;padding:6px;border-radius:8px;border:1px solid var(--marrom-claro)" />
-          </div>`).join('');
-      list.querySelectorAll('.contagem-input').forEach((inp) => {
-        inp.addEventListener('change', () => {
-          db.collection('compras').doc(inp.dataset.id).update({ atualQtd: Number(inp.value) || 0 });
-        });
-      });
-      // Toca no nome/detalhes do item (não no campo de número) pra editar o item inteiro.
-      list.querySelectorAll('.contagem-info').forEach((infoEl) => {
-        infoEl.addEventListener('click', () => {
-          openItemModal(itens.find((i) => i.id === infoEl.dataset.id));
-        });
-      });
-      return;
-    }
+// Monta a lista "O que comprar?" a partir do doc de sessão — não recalcula
+// sozinha quem está em falta; só mostra quem foi colocado lá (ver
+// sincronizarSessaoComItem), até a lista ser finalizada ou cadenciada.
+function listaOQueComprar(itens, sessaoItens) {
+  const porId = {};
+  itens.forEach((i) => { porId[i.id] = i; });
+  return Object.entries(sessaoItens || {})
+    .map(([id, info]) => {
+      const item = porId[id];
+      if (!item) return null; // item pode ter sido excluído nesse meio tempo
+      return { item, comprado: !!info.comprado, qtdNecessaria: info.qtdNecessaria, qtdAntesDaCompra: info.qtdAntesDaCompra };
+    })
+    .filter(Boolean);
+}
 
-    if (faltando.length === 0) {
-      list.innerHTML = '<div class="empty-state">Nada faltando por enquanto 🎉</div>';
-      return;
-    }
-    const grupos = {};
-    faltando.forEach((i) => {
-      const chave = `${i.setor} · ${i.local}`;
-      (grupos[chave] = grupos[chave] || []).push(i);
+function renderListaDosSonhos(itens) {
+  const list = $('#compras-list');
+  if (itens.length === 0) {
+    list.innerHTML = '<div class="empty-state">Nenhum item cadastrado ainda. Toque no + para começar a sua lista dos sonhos.</div>';
+    return;
+  }
+  const grupos = {};
+  itens.forEach((i) => {
+    const chave = i.categoria || 'A categorizar';
+    (grupos[chave] = grupos[chave] || []).push(i);
+  });
+  const categorias = Object.keys(grupos).sort((a, b) => a.localeCompare(b, 'pt-BR'));
+  categorias.forEach((cat) => grupos[cat].sort((a, b) => (a.nome || '').localeCompare(b.nome || '', 'pt-BR')));
+
+  list.innerHTML = categorias.map((cat) => `
+    <div class="compras-grupo">
+      <h4>${cat}</h4>
+      ${grupos[cat].map((i) => {
+        const ok = Number(i.atualQtd) >= Number(i.idealQtd);
+        return `
+        <div class="item-card ${ok ? 'compra-ok' : 'compra-falta'}">
+          <div style="flex:1">
+            <div class="titulo">${i.nome}</div>
+            <div class="meta">ideal: ${i.idealQtd} ${i.unidade || ''}</div>
+          </div>
+          <input type="number" min="0" class="sonhos-input" data-id="${i.id}" value="${i.atualQtd}" style="width:56px;padding:6px;border-radius:8px;border:1px solid var(--marrom-claro)" />
+          <button class="sonhos-ok-btn" data-id="${i.id}">OK</button>
+          <button class="item-edit-btn" data-id="${i.id}" aria-label="Editar item"><i class="ti ti-pencil"></i></button>
+        </div>`;
+      }).join('')}
+    </div>`).join('');
+
+  list.querySelectorAll('.sonhos-input').forEach((inp) => {
+    inp.addEventListener('change', () => {
+      const item = itens.find((i) => i.id === inp.dataset.id);
+      atualizarEstoque(item, Number(inp.value) || 0);
     });
-    // Dentro de cada categoria, os itens ficam em ordem alfabética pelo nome.
-    Object.values(grupos).forEach((g) => g.sort((a, b) => (a.nome || '').localeCompare(b.nome || '', 'pt-BR')));
-    list.innerHTML = Object.entries(grupos).map(([chave, itensGrupo]) => `
-      <div class="compras-grupo">
-        <h4>${chave}</h4>
-        ${itensGrupo.map((i) => `
-          <div class="item-card">
-            <label style="display:flex;align-items:center;gap:10px;flex:1;cursor:pointer">
-              <input type="checkbox" class="comprado-check" data-id="${i.id}" data-ideal="${i.idealQtd}" />
-              <div>
-                <div class="titulo">${i.nome}</div>
-                <div class="meta">comprar ${Number(i.idealQtd) - Number(i.atualQtd)} ${i.unidade || ''} (tem ${i.atualQtd}, ideal ${i.idealQtd})</div>
-              </div>
-            </label>
-            <button class="item-edit-btn" data-id="${i.id}" aria-label="Editar item"><i class="ti ti-pencil"></i></button>
-          </div>`).join('')}
-      </div>`).join('');
-    list.querySelectorAll('.comprado-check').forEach((chk) => {
-      chk.addEventListener('change', () => {
-        if (chk.checked) {
-          db.collection('compras').doc(chk.dataset.id).update({ atualQtd: Number(chk.dataset.ideal) });
-        }
-      });
+  });
+  list.querySelectorAll('.sonhos-ok-btn').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const item = itens.find((i) => i.id === btn.dataset.id);
+      atualizarEstoque(item, Number(item.idealQtd) || 0);
     });
-    list.querySelectorAll('.item-edit-btn').forEach((btn) => {
-      btn.addEventListener('click', () => {
-        openItemModal(itens.find((i) => i.id === btn.dataset.id));
-      });
+  });
+  list.querySelectorAll('.item-edit-btn').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      openItemModal(itens.find((i) => i.id === btn.dataset.id));
+    });
+  });
+}
+
+function renderOQueComprar(itens, sessaoItens, historico) {
+  const lista = listaOQueComprar(itens, sessaoItens)
+    .sort((a, b) => (a.item.nome || '').localeCompare(b.item.nome || '', 'pt-BR'));
+  const list = $('#compras-list');
+
+  const historicoHtml = `
+    <div class="hist-toggle" id="compras-hist-toggle" ${historico.length ? '' : 'hidden'}>
+      <i class="ti ti-chevron-right"></i> Histórico (<span id="compras-hist-count">${historico.length}</span>)
+    </div>
+    <div class="list-area hist-area" id="compras-historico" hidden>
+      ${historico.map((h) => `
+        <div class="item-card">
+          <div style="flex:1">
+            <div class="titulo">${formatDateBR(h.data)}</div>
+            <div class="meta">${(h.itens || []).map((it) => `${it.comprado ? '✓' : '✗'} ${it.nome} (${it.qtdNecessaria} ${it.unidade || ''})`).join(' · ')}</div>
+          </div>
+        </div>`).join('')}
+    </div>
+  `;
+
+  if (lista.length === 0) {
+    list.innerHTML = '<div class="empty-state">Nada para comprar por enquanto 🎉</div>' + historicoHtml;
+    wireHistoricoToggle();
+    return;
+  }
+
+  list.innerHTML = lista.map((l) => `
+    <div class="item-card ${l.comprado ? 'comprado-ok' : ''}">
+      <label style="display:flex;align-items:center;gap:10px;flex:1;cursor:pointer">
+        <input type="checkbox" class="comprar-check" data-id="${l.item.id}" ${l.comprado ? 'checked' : ''} />
+        <div>
+          <div class="titulo">${l.item.nome}</div>
+          <div class="meta">comprar ${l.qtdNecessaria} ${l.item.unidade || ''}${l.item.categoria ? ' · ' + l.item.categoria : ''}</div>
+        </div>
+      </label>
+    </div>`).join('')
+    + `<button class="btn-primary" id="btn-finalizar-compras" style="margin-top:6px">Finalizar compras</button>`
+    + historicoHtml;
+
+  list.querySelectorAll('.comprar-check').forEach((chk) => {
+    chk.addEventListener('change', () => {
+      const entry = lista.find((l) => l.item.id === chk.dataset.id);
+      if (chk.checked) marcarComprado(entry);
+      else desmarcarComprado(entry);
+    });
+  });
+  $('#btn-finalizar-compras').addEventListener('click', () => abrirConfirmacaoFinalizar(lista));
+  wireHistoricoToggle();
+
+  function wireHistoricoToggle() {
+    const toggle = $('#compras-hist-toggle');
+    const hist = $('#compras-historico');
+    if (!toggle) return;
+    toggle.addEventListener('click', () => {
+      hist.hidden = !hist.hidden;
+      toggle.classList.toggle('aberto', !hist.hidden);
     });
   }
 }
 
+// Atualiza a quantidade atual de um item (pelo campo numérico ou pelo botão
+// OK na Lista dos sonhos) e mantém a lista "O que comprar?" em dia.
+function atualizarEstoque(item, novoAtual) {
+  db.collection('compras').doc(item.id).update({ atualQtd: novoAtual }).then(() => {
+    sincronizarSessaoComItem(item, novoAtual);
+  });
+}
+
+// Garante que a lista "O que comprar?" reflita a nova quantidade: entra na
+// lista (ou atualiza quanto falta) se ficou abaixo do ideal; some da lista
+// se voltou a ficar ideal SEM ter passado pelo check de "comprado" (ou
+// seja, resolvido de outro jeito, sem precisar da compra).
+function sincronizarSessaoComItem(item, novoAtual) {
+  const precisa = novoAtual < Number(item.idealQtd);
+  const sessaoRef = db.collection('comprasSessao').doc('atual');
+  if (precisa) {
+    return sessaoRef.set({
+      itens: { [item.id]: { comprado: false, qtdNecessaria: Number(item.idealQtd) - novoAtual } }
+    }, { merge: true });
+  }
+  return sessaoRef.get().then((doc) => {
+    const atual = doc.exists ? (doc.data().itens || {})[item.id] : null;
+    if (atual && !atual.comprado) {
+      return sessaoRef.set({ itens: { [item.id]: firebase.firestore.FieldValue.delete() } }, { merge: true });
+    }
+  });
+}
+
+// Marcar/desmarcar "comprado" na lista "O que comprar?". Marcar presume que
+// foi comprada a quantidade ideal (não precisa informar quanto). Desmarcar
+// devolve a quantidade de estoque para o valor de antes da compra.
+function marcarComprado(entry) {
+  const qtdAntesDaCompra = Number(entry.item.atualQtd);
+  db.collection('comprasSessao').doc('atual').set({
+    itens: { [entry.item.id]: { comprado: true, qtdNecessaria: entry.qtdNecessaria, qtdAntesDaCompra } }
+  }, { merge: true }).then(() => {
+    db.collection('compras').doc(entry.item.id).update({ atualQtd: Number(entry.item.idealQtd) });
+  });
+}
+
+function desmarcarComprado(entry) {
+  const voltar = entry.qtdAntesDaCompra ?? (Number(entry.item.idealQtd) - entry.qtdNecessaria);
+  db.collection('compras').doc(entry.item.id).update({ atualQtd: voltar }).then(() => {
+    db.collection('comprasSessao').doc('atual').set({
+      itens: { [entry.item.id]: { comprado: false, qtdNecessaria: entry.qtdNecessaria } }
+    }, { merge: true });
+  });
+}
+
+// Botão "Finalizar compras". Se não há pendente, finaliza direto. Se há
+// pendente, pergunta exatamente como a Thami pediu: finalizar (fecha tudo)
+// ou cadenciar (só o que tem check vai pro histórico).
+function abrirConfirmacaoFinalizar(lista) {
+  if (lista.length === 0) return;
+  const pendentes = lista.filter((l) => !l.comprado);
+  if (pendentes.length === 0) {
+    finalizarTudo(lista);
+    return;
+  }
+  const html = `
+    <h2>Ainda temos itens pendentes</h2>
+    <p style="font-size:14px;line-height:1.5;margin:0 0 16px">
+      Ainda temos itens pendentes na lista. Deseja <strong>finalizar</strong> (isso fecha a lista toda e ela já vai para a caixinha de histórico) ou <strong>cadenciar a lista</strong> (só os itens com check vão para o histórico; o que ainda está pendente permanece na lista de "O que comprar?")?
+    </p>
+    <div class="modal-actions" style="flex-direction:column">
+      <button class="btn-primary" id="btn-finalizar-tudo">Finalizar</button>
+      <button class="btn-secondary" id="btn-cadenciar">Cadenciar a lista</button>
+    </div>
+    <button class="btn-danger" id="btn-voltar-finalizar" style="margin-top:10px">Voltar</button>
+  `;
+  openModal(html, (overlay) => {
+    $('#btn-finalizar-tudo', overlay).addEventListener('click', () => { finalizarTudo(lista); closeModal(); });
+    $('#btn-cadenciar', overlay).addEventListener('click', () => { cadenciarLista(lista); closeModal(); });
+    $('#btn-voltar-finalizar', overlay).addEventListener('click', closeModal);
+  });
+}
+
+function finalizarTudo(lista) {
+  salvarNoHistorico(lista);
+  db.collection('comprasSessao').doc('atual').set({ itens: {} });
+}
+
+function cadenciarLista(lista) {
+  const comprados = lista.filter((l) => l.comprado);
+  if (comprados.length === 0) return;
+  salvarNoHistorico(comprados);
+  const payload = {};
+  comprados.forEach((l) => { payload[`itens.${l.item.id}`] = firebase.firestore.FieldValue.delete(); });
+  db.collection('comprasSessao').doc('atual').update(payload);
+}
+
+function salvarNoHistorico(lista) {
+  const itensHist = lista.map((l) => ({
+    nome: l.item.nome,
+    categoria: l.item.categoria || '',
+    unidade: l.item.unidade || '',
+    qtdNecessaria: l.qtdNecessaria,
+    comprado: l.comprado
+  }));
+  db.collection('comprasHistorico').doc().set({
+    data: new Date().toISOString().slice(0, 10),
+    criadoEm: Date.now(),
+    itens: itensHist
+  });
+}
+
+// Monta um <select> com as opções fixas + já usadas + "+ Novo/Nova...",
+// mais um campo de texto escondido que aparece ao escolher essa opção.
+function pickListHtml(idPrefix, opcoes, valorAtual, novoLabel, novoPlaceholder) {
+  const options = opcoes.map((o) =>
+    `<option value="${o}" ${valorAtual === o ? 'selected' : ''}>${o}</option>`
+  ).join('');
+  return `
+    <select id="f-${idPrefix}-select">
+      <option value="">Selecionar...</option>
+      ${options}
+      <option value="__novo__">${novoLabel}</option>
+    </select>
+    <input id="f-${idPrefix}-novo" placeholder="${novoPlaceholder}" class="hidden" style="margin-top:8px" />
+  `;
+}
+function wirePickList(overlay, idPrefix) {
+  $(`#f-${idPrefix}-select`, overlay).addEventListener('change', (e) => {
+    $(`#f-${idPrefix}-novo`, overlay).classList.toggle('hidden', e.target.value !== '__novo__');
+  });
+}
+function valorPickList(overlay, idPrefix) {
+  const sel = $(`#f-${idPrefix}-select`, overlay).value;
+  return sel === '__novo__' ? $(`#f-${idPrefix}-novo`, overlay).value.trim() : sel;
+}
+
 function openItemModal(item) {
   const isEdit = item && item.id;
-  // O local do item atual entra na lista de opções mesmo que, por algum
-  // motivo, ainda não esteja em locaisConhecidos.
-  const opcoesLocal = [...new Set([...locaisConhecidos, ...(item?.local ? [item.local] : [])])];
-  const localHtml = opcoesLocal.map((l) =>
-    `<option value="${l}" ${item?.local === l ? 'selected' : ''}>${l}</option>`
-  ).join('');
+  const opcoesCategoria = [...new Set([...categoriasConhecidas, ...(item?.categoria ? [item.categoria] : [])])];
+  const opcoesUnidade = [...new Set([...unidadesConhecidas, ...(item?.unidade ? [item.unidade] : [])])];
 
   const html = `
     <h2>${isEdit ? 'Editar item' : 'Novo item'}</h2>
     <div class="form-field"><label>Nome do item</label><input id="f-nome" value="${item?.nome || ''}" /></div>
-    <div class="form-field"><label>Setor (ex: comida, limpeza)</label><input id="f-setor" value="${item?.setor || ''}" /></div>
     <div class="form-field">
-      <label>Onde compram</label>
-      <select id="f-local-select">
-        <option value="">Selecionar...</option>
-        ${localHtml}
-        <option value="__novo__">+ Novo local</option>
-      </select>
-      <input id="f-local-novo" placeholder="Nome do novo local" class="hidden" style="margin-top:8px" />
+      <label>Onde comprar</label>
+      ${pickListHtml('categoria', opcoesCategoria, item?.categoria, '+ Nova categoria', 'Nome da nova categoria')}
     </div>
     <div class="form-field"><label>Quantidade ideal</label><input id="f-ideal" type="number" min="0" value="${item?.idealQtd ?? ''}" /></div>
     <div class="form-field"><label>Quantidade atual</label><input id="f-atual" type="number" min="0" value="${item?.atualQtd ?? 0}" /></div>
-    <div class="form-field"><label>Unidade (ex: kg, un, pacotes, L)</label><input id="f-unidade" placeholder="un" value="${item?.unidade || ''}" /></div>
+    <div class="form-field">
+      <label>Unidade de medida</label>
+      ${pickListHtml('unidade', opcoesUnidade, item?.unidade, '+ Nova unidade', 'Nome da nova unidade')}
+    </div>
     <div class="modal-actions">
       <button class="btn-secondary" id="btn-cancelar">Cancelar</button>
       <button class="btn-primary" id="btn-salvar">${isEdit ? 'Salvar' : 'Adicionar'}</button>
@@ -520,30 +737,32 @@ function openItemModal(item) {
     ${isEdit ? '<button class="btn-danger" id="btn-excluir">Excluir item</button>' : ''}
   `;
   openModal(html, (overlay) => {
-    $('#f-local-select', overlay).addEventListener('change', (e) => {
-      $('#f-local-novo', overlay).classList.toggle('hidden', e.target.value !== '__novo__');
-    });
+    wirePickList(overlay, 'categoria');
+    wirePickList(overlay, 'unidade');
     $('#btn-cancelar', overlay).addEventListener('click', closeModal);
     $('#btn-excluir', overlay)?.addEventListener('click', () => {
-      db.collection('compras').doc(item.id).delete().then(closeModal);
+      db.collection('compras').doc(item.id).delete();
+      db.collection('comprasSessao').doc('atual').set({
+        itens: { [item.id]: firebase.firestore.FieldValue.delete() }
+      }, { merge: true });
+      closeModal();
     });
     $('#btn-salvar', overlay).addEventListener('click', () => {
       const nome = $('#f-nome', overlay).value.trim();
       if (!nome) return;
-      const localEscolhido = $('#f-local-select', overlay).value;
-      const local = localEscolhido === '__novo__'
-        ? $('#f-local-novo', overlay).value.trim()
-        : localEscolhido;
-      const payload = {
-        nome,
-        setor: $('#f-setor', overlay).value.trim() || 'geral',
-        local: local || 'a definir',
-        idealQtd: Number($('#f-ideal', overlay).value) || 0,
-        atualQtd: Number($('#f-atual', overlay).value) || 0,
-        unidade: $('#f-unidade', overlay).value.trim() || 'un'
-      };
+      if (!isEdit) {
+        const duplicado = comprasItensAtuais.some((i) => (i.nome || '').trim().toLowerCase() === nome.toLowerCase());
+        if (duplicado && !confirm(`Já existe um item chamado "${nome}" nessa lista. Quer mesmo assim adicionar mais um igual?`)) {
+          return;
+        }
+      }
+      const categoria = valorPickList(overlay, 'categoria');
+      const unidade = valorPickList(overlay, 'unidade');
+      const idealQtd = Number($('#f-ideal', overlay).value) || 0;
+      const atualQtd = Number($('#f-atual', overlay).value) || 0;
+      const payload = { nome, categoria, unidade, idealQtd, atualQtd };
       const ref = isEdit ? db.collection('compras').doc(item.id) : db.collection('compras').doc();
-      ref.set(payload, { merge: true }).then(closeModal);
+      ref.set(payload, { merge: true }).then(() => sincronizarSessaoComItem({ id: ref.id, idealQtd }, atualQtd)).then(closeModal);
     });
   });
 }
